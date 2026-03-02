@@ -69,7 +69,7 @@ jobs:
               echo "--------------------------------------" >&2
               echo "Procesando: $repo_onprem" >&2
 
-              "$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" "$repo_onprem" "$repo_ghe"
+              "$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" "$repo_onprem"
               r1=$?
 
               "$RUTA_SCRIPTS/02.deshabilitarRamasCode" "$repo_onprem" "$repo_ghe"

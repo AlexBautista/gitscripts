@@ -46,8 +46,8 @@ jobs:
             # 🔎 Validar existencia de scripts antes de ejecutar
             for script in \
               "$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" \
-              "$RUTA_SCRIPTS/02.deshabilitarRamasCode" \
-              "$RUTA_SCRIPTS/03.deshabiltarJobs"
+              "$RUTA_SCRIPTS/02.deshabilitarRamasCode.sh" \
+              "$RUTA_SCRIPTS/03.deshabiltarJobs.sh"
             do
               if [ ! -x "$script" ]; then
                 echo "❌ Script faltante o sin permisos: $script" >&2
@@ -72,10 +72,10 @@ jobs:
               "$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" "$repo_onprem"
               r1=$?
 
-              "$RUTA_SCRIPTS/02.deshabilitarRamasCode" "$repo_onprem" "$repo_ghe"
+              "$RUTA_SCRIPTS/02.deshabilitarRamasCode.sh" "$repo_onprem" "$repo_ghe"
               r2=$?
 
-              "$RUTA_SCRIPTS/03.deshabiltarJobs" "$repo_onprem" "$repo_ghe"
+              "$RUTA_SCRIPTS/03.deshabiltarJobs.sh" "$repo_onprem" "$repo_ghe"
               r3=$?
 
               if [ $r1 -eq 0 ] && [ $r2 -eq 0 ] && [ $r3 -eq 0 ]; then

@@ -18,32 +18,45 @@ jobs:
 
       - name: Ejecutar scripts remotos
         run: |
-          set -e
+          set -euo pipefail
 
-          ARCHIVO="repos.csv"
+          ############################################
+          # Configuración
+          ############################################
 
-          if [ ! -f "$ARCHIVO" ]; then
-            echo "❌ No se encontró el archivo $ARCHIVO"
+          CSV_FILE="repos.csv"
+          SSH_USER="${{ secrets.GIT_SERVER_USER }}"
+          SSH_HOST="${{ secrets.GIT_SERVER_HOST }}"
+          SSH_PORT="${{ secrets.GIT_SERVER_PORT:-22 }}"
+          REMOTE_SCRIPTS_DIR="/opt/scripts"
+
+          if [ ! -f "$CSV_FILE" ]; then
+            echo "❌ No se encontró el archivo $CSV_FILE"
             exit 1
           fi
 
-          PUERTO_SSH=${{ secrets.GIT_SERVER_PORT }}
-          PUERTO_SSH=${PUERTO_SSH:-22}
+          ############################################
+          # Ejecutar procesamiento remoto
+          ############################################
 
           echo "## 📊 Resumen de ejecución" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Repo OnPrem | Repo GHE | Resultado |" >> $GITHUB_STEP_SUMMARY
           echo "|-------------|----------|-----------|" >> $GITHUB_STEP_SUMMARY
 
-          # Ejecutar en una sola sesión SSH
-          cat "$ARCHIVO" | ssh -o StrictHostKeyChecking=no \
-            -p $PUERTO_SSH \
-            ${{ secrets.GIT_SERVER_USER }}@${{ secrets.GIT_SERVER_HOST }} '
+          ssh -o StrictHostKeyChecking=no \
+              -p "$SSH_PORT" \
+              "${SSH_USER}@${SSH_HOST}" << 'EOF' > resultados.txt
+
+            set -euo pipefail
 
             RUTA_SCRIPTS="/opt/scripts"
             fallos=0
 
-            # 🔎 Validar existencia de scripts antes de ejecutar
+            ############################################
+            # Validar scripts
+            ############################################
+
             for script in \
               "$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" \
               "$RUTA_SCRIPTS/02.deshabilitarRamasCode.sh" \
@@ -58,7 +71,10 @@ jobs:
             echo "✅ Scripts validados correctamente" >&2
             echo "🚀 Iniciando procesamiento..." >&2
 
-            # Procesar cada línea del CSV
+            ############################################
+            # Procesar CSV
+            ############################################
+
             while IFS="," read -r repo_onprem repo_ghe || [ -n "$repo_onprem" ]
             do
               [ -z "$repo_onprem" ] && continue
@@ -66,7 +82,7 @@ jobs:
               repo_onprem=$(echo "$repo_onprem" | xargs)
               repo_ghe=$(echo "$repo_ghe" | xargs)
 
-              echo "--------------------------------------" >&2
+              echo "--------------------------------" >&2
               echo "Procesando: $repo_onprem" >&2
 
               "$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" "$repo_onprem"
@@ -85,19 +101,22 @@ jobs:
                 fallos=$((fallos+1))
               fi
 
-            done < <(cat)
+            done < /workspace/repos.csv
 
             echo "TOTAL_FALLOS=$fallos"
-            exit 0
-          ' > resultados.txt
+
+EOF
+
+          ############################################
+          # Procesar resultados y construir tabla
+          ############################################
 
           TOTAL_FALLOS=0
 
-          # Leer resultados y construir tabla
           while IFS=',' read -r repo_onprem repo_ghe resultado
           do
-            if [[ "$repo_onprem" == TOTAL_FALLOS* ]]; then
-              TOTAL_FALLOS=$(echo "$repo_onprem" | cut -d'=' -f2)
+            if [[ "$repo_onprem" == TOTAL_FALLOS=* ]]; then
+              TOTAL_FALLOS="${repo_onprem#*=}"
               continue
             fi
 
@@ -112,7 +131,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ "$TOTAL_FALLOS" -gt 0 ]; then
-            echo "❌ $TOTAL_FALLOS repositorio(s) presentaron errores." >> $GITHUB_STEP_SUMMARY
+            echo "❌ $TOTAL_FALLOS repositorios presentaron errores." >> $GITHUB_STEP_SUMMARY
             exit 1
           else
             echo "✅ Todos los repositorios fueron procesados correctamente." >> $GITHUB_STEP_SUMMARY

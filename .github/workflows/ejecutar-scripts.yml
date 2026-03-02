@@ -16,9 +16,10 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.GIT_SERVER_SSH_KEY }}
 
-      - name: Ejecutar scripts y generar resumen
+      - name: Ejecutar scripts remotos
         run: |
           set -e
+
           ARCHIVO="repos.csv"
 
           if [ ! -f "$ARCHIVO" ]; then
@@ -34,16 +35,30 @@ jobs:
           echo "| Repo OnPrem | Repo GHE | Resultado |" >> $GITHUB_STEP_SUMMARY
           echo "|-------------|----------|-----------|" >> $GITHUB_STEP_SUMMARY
 
+          # Ejecutar en una sola sesión SSH
           cat "$ARCHIVO" | ssh -o StrictHostKeyChecking=no \
-              -p $PUERTO_SSH \
-              ${{ secrets.GIT_SERVER_USER }}@${{ secrets.GIT_SERVER_HOST }} '
+            -p $PUERTO_SSH \
+            ${{ secrets.GIT_SERVER_USER }}@${{ secrets.GIT_SERVER_HOST }} '
 
             RUTA_SCRIPTS="/opt/scripts"
             fallos=0
 
-            echo "🚀 Iniciando procesamiento remoto..."
-            echo "📂 Ruta de scripts: $RUTA_SCRIPTS"
+            # 🔎 Validar existencia de scripts antes de ejecutar
+            for script in \
+              "$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" \
+              "$RUTA_SCRIPTS/02.deshabilitarRamasCode" \
+              "$RUTA_SCRIPTS/03.deshabiltarJobs"
+            do
+              if [ ! -x "$script" ]; then
+                echo "❌ Script faltante o sin permisos: $script" >&2
+                exit 1
+              fi
+            done
 
+            echo "✅ Scripts validados correctamente" >&2
+            echo "🚀 Iniciando procesamiento..." >&2
+
+            # Procesar cada línea del CSV
             while IFS="," read -r repo_onprem repo_ghe || [ -n "$repo_onprem" ]
             do
               [ -z "$repo_onprem" ] && continue
@@ -51,9 +66,8 @@ jobs:
               repo_onprem=$(echo "$repo_onprem" | xargs)
               repo_ghe=$(echo "$repo_ghe" | xargs)
 
-              echo "--------------------------------------"
-              echo "Procesando: $repo_onprem"
-              echo "--------------------------------------"
+              echo "--------------------------------------" >&2
+              echo "Procesando: $repo_onprem" >&2
 
               "$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" "$repo_onprem" "$repo_ghe"
               r1=$?
@@ -71,15 +85,15 @@ jobs:
                 fallos=$((fallos+1))
               fi
 
-            done
+            done < <(cat)
 
             echo "TOTAL_FALLOS=$fallos"
-            echo "🏁 Procesamiento remoto finalizado."
             exit 0
           ' > resultados.txt
 
           TOTAL_FALLOS=0
 
+          # Leer resultados y construir tabla
           while IFS=',' read -r repo_onprem repo_ghe resultado
           do
             if [[ "$repo_onprem" == TOTAL_FALLOS* ]]; then
@@ -92,13 +106,14 @@ jobs:
             else
               echo "| $repo_onprem | $repo_ghe | ❌ FALLÓ |" >> $GITHUB_STEP_SUMMARY
             fi
+
           done < resultados.txt
 
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           if [ "$TOTAL_FALLOS" -gt 0 ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
             echo "❌ $TOTAL_FALLOS repositorio(s) presentaron errores." >> $GITHUB_STEP_SUMMARY
             exit 1
           else
-            echo "" >> $GITHUB_STEP_SUMMARY
             echo "✅ Todos los repositorios fueron procesados correctamente." >> $GITHUB_STEP_SUMMARY
           fi

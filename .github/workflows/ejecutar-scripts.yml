@@ -1,4 +1,4 @@
-name: Ejecutar Scripts del Servidor Git desde CSV
+name: Ejecutar Scripts del Servidor Git
 
 on:
   workflow_dispatch:

@@ -25,18 +25,18 @@ jobs:
           PORT="${{ secrets.GIT_SERVER_PORT }}"
           PORT=${PORT:-22}
 
-          echo "::notice::Copiando scripts al servidor"
+          echo "::notice::Copiando scripts a ~/scripts en el servidor"
 
           ssh -o StrictHostKeyChecking=no -p "$PORT" "$USER@$HOST" \
-            "mkdir -p /opt/scripts"
+            "mkdir -p ~/scripts"
 
           scp -o StrictHostKeyChecking=no \
             -P "$PORT" \
             -r scripts/* \
-            "$USER@$HOST:/opt/scripts/"
+            "$USER@$HOST:~/scripts/"
 
           ssh -o StrictHostKeyChecking=no -p "$PORT" "$USER@$HOST" \
-            "chmod +x /opt/scripts/*.sh"
+            "chmod +x ~/scripts/*.sh"
 
           echo "::notice::Scripts copiados correctamente"
 
@@ -57,6 +57,7 @@ jobs:
           PORT=${PORT:-22}
 
           echo "## 📊 Resumen de ejecución" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Repo OnPrem | Repo GHE | Resultado |" >> $GITHUB_STEP_SUMMARY
           echo "|-------------|----------|-----------|" >> $GITHUB_STEP_SUMMARY
 
@@ -74,10 +75,12 @@ jobs:
             if ssh -n -o StrictHostKeyChecking=no \
               -p "$PORT" \
               "$USER@$HOST" \
-              "/opt/scripts/run_repo.sh '$repo_onprem' '$repo_ghe'"
+              "~/scripts/run_repo.sh '$repo_onprem' '$repo_ghe'"
             then
+              echo "::notice::$repo_onprem completado"
               echo "| $repo_onprem | $repo_ghe | ✅ ÉXITO |" >> $GITHUB_STEP_SUMMARY
             else
+              echo "::error::Fallo en $repo_onprem"
               echo "| $repo_onprem | $repo_ghe | ❌ FALLÓ |" >> $GITHUB_STEP_SUMMARY
               FAILURES=$((FAILURES+1))
             fi
@@ -86,9 +89,11 @@ jobs:
 
           done < "$ARCHIVO"
 
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           if [ "$FAILURES" -gt 0 ]; then
-            echo "❌ $FAILURES repositorios fallaron" >> $GITHUB_STEP_SUMMARY
+            echo "❌ $FAILURES repositorio(s) presentaron errores." >> $GITHUB_STEP_SUMMARY
             exit 1
           else
-            echo "✅ Todos los repositorios fueron procesados correctamente" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Todos los repositorios fueron procesados correctamente." >> $GITHUB_STEP_SUMMARY
           fi

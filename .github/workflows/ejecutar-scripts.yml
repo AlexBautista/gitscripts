@@ -44,7 +44,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          ARCHIVO="repos.csv"
+          ARCHIVO="reps.csv"
 
           if [ ! -f "$ARCHIVO" ]; then
             echo "::error::No se encontró $ARCHIVO"

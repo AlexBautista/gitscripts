@@ -16,31 +16,27 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.GIT_SERVER_SSH_KEY }}
 
-      - name: Ejecutar scripts remotos
+      - name: Ejecutar scripts
         run: |
           set -euo pipefail
 
           ARCHIVO="repos.csv"
 
           if [ ! -f "$ARCHIVO" ]; then
-            echo "::error::No se encontró el archivo $ARCHIVO"
+            echo "::error::No se encontró $ARCHIVO"
             exit 1
           fi
 
-          SSH_PORT=${{ secrets.GIT_SERVER_PORT }}
-          SSH_PORT=${SSH_PORT:-22}
-
           HOST="${{ secrets.GIT_SERVER_HOST }}"
           USER="${{ secrets.GIT_SERVER_USER }}"
-
-          echo "::notice::Iniciando ejecución remota"
+          PORT="${{ secrets.GIT_SERVER_PORT }}"
+          PORT=${PORT:-22}
 
           echo "## 📊 Resumen de ejecución" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Repo OnPrem | Repo GHE | Resultado |" >> $GITHUB_STEP_SUMMARY
           echo "|-------------|----------|-----------|" >> $GITHUB_STEP_SUMMARY
 
-          TOTAL_FALLOS=0
+          FAILURES=0
 
           while IFS=',' read -r repo_onprem repo_ghe || [ -n "$repo_onprem" ]
           do
@@ -51,66 +47,24 @@ jobs:
 
             echo "::group::Procesando $repo_onprem"
 
-            RESULT=$(ssh -o StrictHostKeyChecking=no \
-              -p $SSH_PORT \
+            if ssh -o StrictHostKeyChecking=no \
+              -p $PORT \
               $USER@$HOST \
-              "bash -s" <<EOF
-
-            set -e
-
-            RUTA_SCRIPTS="/opt/scripts"
-
-            echo "::notice::Validando scripts"
-
-            for script in \
-              "\$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" \
-              "\$RUTA_SCRIPTS/02.deshabilitarRamasCode.sh" \
-              "\$RUTA_SCRIPTS/03.deshabiltarJobs.sh"
-            do
-              if [ ! -x "\$script" ]; then
-                echo "::error::Script faltante: \$script"
-                exit 2
-              fi
-            done
-
-            echo "::notice::Ejecutando scripts para $repo_onprem"
-
-            "\$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" "$repo_onprem"
-            r1=\$?
-
-            "\$RUTA_SCRIPTS/02.deshabilitarRamasCode.sh" "$repo_onprem" "$repo_ghe"
-            r2=\$?
-
-            "\$RUTA_SCRIPTS/03.deshabiltarJobs.sh" "$repo_onprem" "$repo_ghe"
-            r3=\$?
-
-            if [ \$r1 -eq 0 ] && [ \$r2 -eq 0 ] && [ \$r3 -eq 0 ]; then
-              echo "RESULT=EXITO"
-            else
-              echo "RESULT=FALLO"
-            fi
-
-            EOF
-            )
-
-            if echo "$RESULT" | grep -q "RESULT=EXITO"; then
-              echo "::notice::$repo_onprem completado correctamente"
+              "/opt/scripts/run_repo.sh '$repo_onprem' '$repo_ghe'"
+            then
               echo "| $repo_onprem | $repo_ghe | ✅ ÉXITO |" >> $GITHUB_STEP_SUMMARY
             else
-              echo "::error::Fallo en $repo_onprem"
               echo "| $repo_onprem | $repo_ghe | ❌ FALLÓ |" >> $GITHUB_STEP_SUMMARY
-              TOTAL_FALLOS=$((TOTAL_FALLOS+1))
+              FAILURES=$((FAILURES+1))
             fi
 
             echo "::endgroup::"
 
           done < "$ARCHIVO"
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ "$TOTAL_FALLOS" -gt 0 ]; then
-            echo "❌ $TOTAL_FALLOS repositorio(s) presentaron errores." >> $GITHUB_STEP_SUMMARY
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "❌ $FAILURES repositorios fallaron" >> $GITHUB_STEP_SUMMARY
             exit 1
           else
-            echo "✅ Todos los repositorios fueron procesados correctamente." >> $GITHUB_STEP_SUMMARY
+            echo "✅ Todos los repositorios fueron procesados correctamente" >> $GITHUB_STEP_SUMMARY
           fi

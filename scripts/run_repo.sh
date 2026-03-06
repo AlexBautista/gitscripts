@@ -4,7 +4,7 @@ set -euo pipefail
 repo_onprem="$1"
 repo_ghe="$2"
 
-RUTA_SCRIPTS="~/scripts"
+RUTA_SCRIPTS="$HOME/scripts"
 
 echo "::notice::Procesando $repo_onprem"
 

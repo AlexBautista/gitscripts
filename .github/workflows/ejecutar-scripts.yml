@@ -67,7 +67,7 @@ jobs:
               repo_ghe=$(echo "$repo_ghe" | xargs)
 
               echo "--------------------------------------" >&2
-              echo "Procesando: $repo_onprem" >&2
+              echo "Procesando: $repo_onprem" 
 
               "$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" "$repo_onprem"
               r1=$?

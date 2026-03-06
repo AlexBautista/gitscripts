@@ -32,7 +32,10 @@ jobs:
           PORT="${{ secrets.GIT_SERVER_PORT }}"
           PORT=${PORT:-22}
 
+          echo "::notice::Iniciando ejecución"
+
           echo "## 📊 Resumen de ejecución" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Repo OnPrem | Repo GHE | Resultado |" >> $GITHUB_STEP_SUMMARY
           echo "|-------------|----------|-----------|" >> $GITHUB_STEP_SUMMARY
 
@@ -47,13 +50,15 @@ jobs:
 
             echo "::group::Procesando $repo_onprem"
 
-            if ssh -o StrictHostKeyChecking=no \
-              -p $PORT \
-              $USER@$HOST \
+            if ssh -n -o StrictHostKeyChecking=no \
+              -p "$PORT" \
+              "$USER@$HOST" \
               "/opt/scripts/run_repo.sh '$repo_onprem' '$repo_ghe'"
             then
+              echo "::notice::$repo_onprem completado"
               echo "| $repo_onprem | $repo_ghe | ✅ ÉXITO |" >> $GITHUB_STEP_SUMMARY
             else
+              echo "::error::Fallo en $repo_onprem"
               echo "| $repo_onprem | $repo_ghe | ❌ FALLÓ |" >> $GITHUB_STEP_SUMMARY
               FAILURES=$((FAILURES+1))
             fi
@@ -62,9 +67,11 @@ jobs:
 
           done < "$ARCHIVO"
 
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           if [ "$FAILURES" -gt 0 ]; then
-            echo "❌ $FAILURES repositorios fallaron" >> $GITHUB_STEP_SUMMARY
+            echo "❌ $FAILURES repositorio(s) presentaron errores." >> $GITHUB_STEP_SUMMARY
             exit 1
           else
-            echo "✅ Todos los repositorios fueron procesados correctamente" >> $GITHUB_STEP_SUMMARY
+            echo "✅ Todos los repositorios fueron procesados correctamente." >> $GITHUB_STEP_SUMMARY
           fi

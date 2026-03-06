@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Descargar repositorio
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Configurar SSH
@@ -18,96 +18,93 @@ jobs:
 
       - name: Ejecutar scripts remotos
         run: |
-          set -e
+          set -euo pipefail
 
           ARCHIVO="repos.csv"
 
           if [ ! -f "$ARCHIVO" ]; then
-            echo "❌ No se encontró el archivo $ARCHIVO"
+            echo "::error::No se encontró el archivo $ARCHIVO"
             exit 1
           fi
 
-          PUERTO_SSH=${{ secrets.GIT_SERVER_PORT }}
-          PUERTO_SSH=${PUERTO_SSH:-22}
+          SSH_PORT=${{ secrets.GIT_SERVER_PORT }}
+          SSH_PORT=${SSH_PORT:-22}
+
+          HOST="${{ secrets.GIT_SERVER_HOST }}"
+          USER="${{ secrets.GIT_SERVER_USER }}"
+
+          echo "::notice::Iniciando ejecución remota"
 
           echo "## 📊 Resumen de ejecución" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Repo OnPrem | Repo GHE | Resultado |" >> $GITHUB_STEP_SUMMARY
           echo "|-------------|----------|-----------|" >> $GITHUB_STEP_SUMMARY
 
-          # Ejecutar en una sola sesión SSH
-          cat "$ARCHIVO" | ssh -o StrictHostKeyChecking=no \
-            -p $PUERTO_SSH \
-            ${{ secrets.GIT_SERVER_USER }}@${{ secrets.GIT_SERVER_HOST }} '
+          TOTAL_FALLOS=0
+
+          while IFS=',' read -r repo_onprem repo_ghe || [ -n "$repo_onprem" ]
+          do
+            repo_onprem=$(echo "$repo_onprem" | xargs)
+            repo_ghe=$(echo "$repo_ghe" | xargs)
+
+            [ -z "$repo_onprem" ] && continue
+
+            echo "::group::Procesando $repo_onprem"
+
+            RESULT=$(ssh -o StrictHostKeyChecking=no \
+              -p $SSH_PORT \
+              $USER@$HOST \
+              "bash -s" <<EOF
+
+            set -e
 
             RUTA_SCRIPTS="/opt/scripts"
-            fallos=0
 
-            # 🔎 Validar existencia de scripts antes de ejecutar
+            echo "::notice::Validando scripts"
+
             for script in \
-              "$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" \
-              "$RUTA_SCRIPTS/02.deshabilitarRamasCode.sh" \
-              "$RUTA_SCRIPTS/03.deshabiltarJobs.sh"
+              "\$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" \
+              "\$RUTA_SCRIPTS/02.deshabilitarRamasCode.sh" \
+              "\$RUTA_SCRIPTS/03.deshabiltarJobs.sh"
             do
-              if [ ! -x "$script" ]; then
-                echo "❌ Script faltante o sin permisos: $script" >&2
-                exit 1
+              if [ ! -x "\$script" ]; then
+                echo "::error::Script faltante: \$script"
+                exit 2
               fi
             done
 
-            echo "✅ Scripts validados correctamente" >&2
-            echo "🚀 Iniciando procesamiento..." >&2
+            echo "::notice::Ejecutando scripts para $repo_onprem"
 
-            # Procesar cada línea del CSV
-            while IFS="," read -r repo_onprem repo_ghe || [ -n "$repo_onprem" ]
-            do
-              [ -z "$repo_onprem" ] && continue
+            "\$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" "$repo_onprem"
+            r1=\$?
 
-              repo_onprem=$(echo "$repo_onprem" | xargs)
-              repo_ghe=$(echo "$repo_ghe" | xargs)
+            "\$RUTA_SCRIPTS/02.deshabilitarRamasCode.sh" "$repo_onprem" "$repo_ghe"
+            r2=\$?
 
-              echo "--------------------------------------" >&2
-              echo "Procesando: $repo_onprem" 
+            "\$RUTA_SCRIPTS/03.deshabiltarJobs.sh" "$repo_onprem" "$repo_ghe"
+            r3=\$?
 
-              "$RUTA_SCRIPTS/01.obtenerRamasActivas.sh" "$repo_onprem"
-              r1=$?
-
-              "$RUTA_SCRIPTS/02.deshabilitarRamasCode.sh" "$repo_onprem" "$repo_ghe"
-              r2=$?
-
-              "$RUTA_SCRIPTS/03.deshabiltarJobs.sh" "$repo_onprem" "$repo_ghe"
-              r3=$?
-
-              if [ $r1 -eq 0 ] && [ $r2 -eq 0 ] && [ $r3 -eq 0 ]; then
-                echo "$repo_onprem,$repo_ghe,EXITO"
-              else
-                echo "$repo_onprem,$repo_ghe,FALLO"
-                fallos=$((fallos+1))
-              fi
-
-            done < <(cat)
-
-            echo "TOTAL_FALLOS=$fallos"
-            exit 0
-          ' > resultados.txt
-
-          TOTAL_FALLOS=0
-
-          # Leer resultados y construir tabla
-          while IFS=',' read -r repo_onprem repo_ghe resultado
-          do
-            if [[ "$repo_onprem" == TOTAL_FALLOS* ]]; then
-              TOTAL_FALLOS=$(echo "$repo_onprem" | cut -d'=' -f2)
-              continue
+            if [ \$r1 -eq 0 ] && [ \$r2 -eq 0 ] && [ \$r3 -eq 0 ]; then
+              echo "RESULT=EXITO"
+            else
+              echo "RESULT=FALLO"
             fi
 
-            if [ "$resultado" == "EXITO" ]; then
+            EOF
+            )
+
+            if echo "$RESULT" | grep -q "RESULT=EXITO"; then
+              echo "::notice::$repo_onprem completado correctamente"
               echo "| $repo_onprem | $repo_ghe | ✅ ÉXITO |" >> $GITHUB_STEP_SUMMARY
             else
+              echo "::error::Fallo en $repo_onprem"
               echo "| $repo_onprem | $repo_ghe | ❌ FALLÓ |" >> $GITHUB_STEP_SUMMARY
+              TOTAL_FALLOS=$((TOTAL_FALLOS+1))
             fi
 
-          done < resultados.txt
+            echo "::endgroup::"
+
+          done < "$ARCHIVO"
 
           echo "" >> $GITHUB_STEP_SUMMARY
 
